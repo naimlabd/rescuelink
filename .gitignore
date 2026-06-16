@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+backend/.deps/
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Runtime data and logs
+backend/data/
+backend/.smoke-data/
+backend/.verification-data/
+*.log
+*.db
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Vite
+.vite/

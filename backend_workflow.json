@@ -1,0 +1,1063 @@
+{
+  "name": "Complete Emergency Response System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "incident-report",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "958f55b4-6d96-49f9-bea7-b331578dc771",
+      "name": "Incident Report Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -2400,
+        112
+      ],
+      "webhookId": "b7119bb3-475d-4b92-a245-668f789c9dec"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "dateTime": [],
+          "number": []
+        }
+      },
+      "id": "c9d7a20c-ce6b-45d8-9d72-98bcfcecb04b",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -2096,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "description",
+              "value": "={{ $json.body.description || $json.description }}"
+            },
+            {
+              "name": "type",
+              "value": "={{ $json.body.type || $json.type || 'general' }}"
+            },
+            {
+              "name": "lat",
+              "value": "={{ $json.body.lat || $json.lat }}"
+            },
+            {
+              "name": "lon",
+              "value": "={{ $json.body.lon || $json.lon }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $json.body.phone || $json.phone }}"
+            },
+            {
+              "name": "media_urls",
+              "value": "={{ JSON.stringify($json.body.media_urls || $json.media_urls || []) }}"
+            },
+            {
+              "name": "citizen_name",
+              "value": "={{ $json.body.citizen_name || $json.citizen_name || 'Anonymous' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "08c2f1e2-93a4-4e2d-ada3-f01f6bcbca2f",
+      "name": "Normalize Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        -1872,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are an AI assistant designed for frontline disaster support. Your job is to analyze the user's message about an emergency and return a structured JSON response. Follow these steps carefully: 1. Identify the type of emergency based on the user's input. Use only one or two words. Examples: Medical, Crime, Harassment, Accident, Natural Disaster, Fire, Rescue. 2. Determine the severity of the emergency as one of: Low, Medium, High, Critical. 3. Generate a short description (1–2 sentences) summarizing the user's emergency. 4. Use the latitude and longitude provided by the app (do not infer from the text, just include them as given). 5. Assign a priority score from 1 to 9 based on the type and severity. 6. Estimate response time needed based on severity. 7. Recommend immediate actions for the citizen. Return the result strictly in JSON format with fields: type, severity, description, lat, lon, priority_score, estimated_response_time, immediate_actions, call_emergency, confidence. Do not include extra text outside of the JSON."
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        -1792,
+        64
+      ],
+      "id": "e6100a46-7044-49d7-a1d1-9a105ae793c0",
+      "name": "AI Emergency Triage",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "j2uXVmaoWrBy5Cn4",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Get data from both inputs\nconst originalData = items[0].json;  // From Normalize Data\nconst aiResponse = items.length > 1 ? items[1].json : null;  // From AI Triage\n\n// Generate unique incident ID\nconst incidentId = `INC-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;\n\n// If AI response is available, use it, otherwise use fallback\nlet processedData;\nif (aiResponse) {\n  // Determine worker assignment based on type\n  let assignedTeam = 'general';\n  switch(aiResponse.type?.toLowerCase()) {\n    case 'medical':\n      assignedTeam = 'medical';\n      break;\n    case 'fire':\n      assignedTeam = 'fire';\n      break;\n    case 'crime':\n    case 'harassment':\n      assignedTeam = 'police';\n      break;\n    case 'accident':\n      assignedTeam = 'rescue';\n      break;\n    default:\n      assignedTeam = 'general';\n  }\n\n  processedData = {\n    incident_id: incidentId,\n    citizen_name: originalData.citizen_name,\n    description: originalData.description,\n    type: aiResponse.type,\n    lat: originalData.lat,\n    lon: originalData.lon,\n    phone: originalData.phone,\n    media_urls: originalData.media_urls,\n    severity: aiResponse.severity,\n    priority_score: aiResponse.priority_score,\n    estimated_response_time: aiResponse.estimated_response_time,\n    immediate_actions: aiResponse.immediate_actions,\n    call_emergency: aiResponse.call_emergency,\n    ai_confidence: aiResponse.confidence,\n    status: 'pending',\n    assigned_team: assignedTeam,\n    assigned_worker: null,\n    worker_response: null,\n    created_at: new Date().toISOString(),\n    updated_at: new Date().toISOString(),\n    reported_at: new Date().toISOString(),\n    acknowledged_at: null,\n    responded_at: null,\n    resolved_at: null\n  };\n} else {\n  // Fallback if AI is not available\n  processedData = {\n    incident_id: incidentId,\n    citizen_name: originalData.citizen_name,\n    description: originalData.description,\n    type: originalData.type || 'general',\n    lat: originalData.lat,\n    lon: originalData.lon,\n    phone: originalData.phone,\n    media_urls: originalData.media_urls,\n    severity: 'medium',\n    priority_score: 5,\n    estimated_response_time: '15-30 minutes',\n    immediate_actions: ['Stay safe', 'Wait for assistance'],\n    call_emergency: false,\n    ai_confidence: 0.5,\n    status: 'pending',\n    assigned_team: 'general',\n    assigned_worker: null,\n    worker_response: null,\n    created_at: new Date().toISOString(),\n    updated_at: new Date().toISOString(),\n    reported_at: new Date().toISOString(),\n    acknowledged_at: null,\n    responded_at: null,\n    resolved_at: null\n  };\n}\n\nreturn [{ json: processedData }];"
+      },
+      "id": "9adf8dc8-d475-4a32-81c3-3c0221a31438",
+      "name": "Merge AI Response & Generate ID",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1440,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "requestMethod": "POST",
+        "url": "https://api.airtable.com/v0/appkEB1XEIpTjLhQ1/incidents",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={\n  \"records\": [\n    {\n      \"fields\": {\n        \"incident_id\": \"{{ $json.incident_id }}\",\n        \"citizen_name\": \"{{ $json.citizen_name }}\",\n        \"type\": \"{{ $json.type }}\",\n        \"severity\": \"{{ $json.severity }}\",\n        \"description\": \"{{ $json.description }}\",\n        \"status\": \"{{ $json.status }}\",\n        \"assigned_team\": \"{{ $json.assigned_team }}\",\n        \"priority_score\": {{ $json.priority_score }},\n        \"phone\": \"{{ $json.phone }}\",\n        \"lat\": \"{{ $json.lat }}\",\n        \"lon\": \"{{ $json.lon }}\",\n        \"created_at\": \"{{ $json.created_at }}\"\n      }\n    }\n  ]\n}",
+        "headerParametersJson": "{ \"Content-Type\": \"application/json\", \"Authorization\": \"Bearer YOUR_AIRTABLE_PAT\" }"
+      },
+      "id": "fd337019-db91-43e3-91b3-c12cd56bfc64",
+      "name": "Save to Airtable Database",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        -1232,
+        -144
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "DUd3S5S0kG4pSAIL",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Pff_mYELlFUGzax4SgSO8iLluc-fCzeq3Q-3FP2r0lM",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Pff_mYELlFUGzax4SgSO8iLluc-fCzeq3Q-3FP2r0lM/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Incident_ID": "Incident_ID",
+            "Timestamp": "TimeStamp",
+            "Type": "Type",
+            "Description": "Description",
+            "Location": "Location",
+            "Phone": "Phone",
+            "Severity": "Severity",
+            "Life_Threat": "Life_Threat",
+            "Call_Emergency": "Call_Emergency",
+            "Priority_Score": "Priority_Score",
+            "Status": "Status",
+            "AI_Confidence": "AI_Confidence"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Incident_ID",
+              "displayName": "Incident_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Type",
+              "displayName": "Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Severity",
+              "displayName": "Severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Life_Threat",
+              "displayName": "Life_Threat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Call_Emergency",
+              "displayName": "Call_Emergency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Priority_Score",
+              "displayName": "Priority_Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "AI_Confidence",
+              "displayName": "AI_Confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "74bb29ac-2d4f-4230-80d7-86772fadf946",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -512,
+        32
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yKorLTMGqZkYU32N",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.severity }}",
+              "rightValue": "Critical",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "id": "afe46c8f-9b3f-43d7-9d75-2f3a88cac1b1"
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "ae1c4274-736e-45af-a102-23beedd153ef",
+      "name": "Check if Critical",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -992,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"message\": \"Incident reported successfully\",\n  \"incident_id\": \"{{ $json.incident_id }}\",\n  \"severity\": \"{{ $json.severity }}\"\n}",
+        "options": {}
+      },
+      "id": "32721d34-3a64-4b99-b230-9f330acfd154",
+      "name": "Citizen Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -512,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"error\", \"message\": \"Invalid input: Missing required fields\" }",
+        "options": {}
+      },
+      "id": "6f3abf28-4d10-4507-9e18-7be28010d724",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -1872,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "path": "incidents/active",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "9e2e92cd-7743-494a-9556-bcd740c3fe29",
+      "name": "Get Active Incidents API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        288
+      ],
+      "webhookId": "active-incidents-webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appkEB1XEIpTjLhQ1/incidents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "OR({status}='pending',{status}='acknowledged',{status}='responding')"
+            },
+            {
+              "name": "sort[0][field]",
+              "value": "priority_score"
+            },
+            {
+              "name": "sort[0][direction]",
+              "value": "desc"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_AIRTABLE_PAT"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1afbce4b-44cf-4b12-8373-14f7d6668d91",
+      "name": "Fetch Active Incidents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        -32,
+        288
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "DUd3S5S0kG4pSAIL",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.records.map(record => ({ incident_id: record.fields.incident_id, citizen_name: record.fields.citizen_name, type: record.fields.type, severity: record.fields.severity, description: record.fields.description, location: record.fields.location, phone: record.fields.phone, status: record.fields.status, assigned_team: record.fields.assigned_team, assigned_worker: record.fields.assigned_worker, priority_score: record.fields.priority_score, created_at: record.fields.created_at, airtable_id: record.id }))) }}",
+        "options": {}
+      },
+      "id": "6e7261c3-4d77-4855-9cf8-05435b76a071",
+      "name": "Return Incidents List",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        208,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "incident/respond",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "30ca64be-cbcf-4286-9b12-30c10a16429b",
+      "name": "Worker Response Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        496
+      ],
+      "webhookId": "worker-response-webhook"
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "incident_id",
+              "value": "={{ $json.body.incident_id }}"
+            },
+            {
+              "name": "worker_id",
+              "value": "={{ $json.body.worker_id }}"
+            },
+            {
+              "name": "worker_name",
+              "value": "={{ $json.body.worker_name }}"
+            },
+            {
+              "name": "response_type",
+              "value": "={{ $json.body.response_type }}"
+            },
+            {
+              "name": "response_message",
+              "value": "={{ $json.body.response_message }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ $json.body.status }}"
+            },
+            {
+              "name": "eta_minutes",
+              "value": "={{ $json.body.eta_minutes }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1fae67ce-246a-4ba5-a2a9-a0fa77b899e4",
+      "name": "Normalize Worker Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appkEB1XEIpTjLhQ1/incidents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "=={incident_id}='{{ $json.incident_id }}'"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_AIRTABLE_PAT"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0ed65767-f9cd-4540-b98c-31a410760ddc",
+      "name": "Find Incident Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        208,
+        496
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "DUd3S5S0kG4pSAIL",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const incident = $input.first().json.records[0];\nconst workerData = $input.last().json;\n\nif (!incident) {\n  throw new Error('Incident not found');\n}\n\nreturn [{\n  json: {\n    ...workerData,\n    airtable_record_id: incident.id,\n    phone: incident.fields.phone,\n    type: incident.fields.type\n  }\n}];"
+      },
+      "id": "70bcbc34-78e4-4c67-92a3-b6599c39a470",
+      "name": "Merge Incident Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        336,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appkEB1XEIpTjLhQ1/incidents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_AIRTABLE_PAT"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"records\": [\n    {\n      \"id\": \"{{ $json.airtable_record_id }}\",\n      \"fields\": {\n        \"status\": \"{{ $json.status }}\",\n        \"assigned_worker\": \"{{ $json.worker_name }}\",\n        \"worker_response\": \"{{ $json.response_message }}\",\n        \"updated_at\": \"{{ new Date().toISOString() }}\",\n        \"acknowledged_at\": \"{{ $json.response_type === 'acknowledge' ? new Date().toISOString() : null }}\",\n        \"responded_at\": \"{{ $json.response_type === 'respond' ? new Date().toISOString() : null }}\",\n        \"eta_minutes\": {{ $json.eta_minutes || 0 }}\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "952e19d1-9703-4244-b2dc-17b973f45977",
+      "name": "Update Incident Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        560,
+        496
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "DUd3S5S0kG4pSAIL",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"success\", \"message\": \"Response recorded successfully\", \"incident_id\": \"{{ $json.incident_id }}\", \"new_status\": \"{{ $json.status }}\", \"worker\": \"{{ $json.worker_name }}\" }",
+        "options": {}
+      },
+      "id": "6d990bc5-ef82-4aad-a356-46bf4f5705e0",
+      "name": "Worker Response Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        416,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "path": "incident/status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6ee02890-aa7d-427d-b0b5-5128524fbceb",
+      "name": "Citizen Status Check API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        688
+      ],
+      "webhookId": "citizen-status-webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appkEB1XEIpTjLhQ1/incidents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "=={incident_id}='{{ $json.query.incident_id }}'"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_AIRTABLE_PAT"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9bc4d48e-5754-49bd-a4c9-2b7543b69659",
+      "name": "Get Incident Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        -32,
+        688
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "DUd3S5S0kG4pSAIL",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.records.length > 0 ? JSON.stringify({ status: 'success', incident: { incident_id: $json.records[0].fields.incident_id, type: $json.records[0].fields.type, severity: $json.records[0].fields.severity, status: $json.records[0].fields.status, description: $json.records[0].fields.description, assigned_worker: $json.records[0].fields.assigned_worker, worker_response: $json.records[0].fields.worker_response, eta_minutes: $json.records[0].fields.eta_minutes, created_at: $json.records[0].fields.created_at, acknowledged_at: $json.records[0].fields.acknowledged_at, responded_at: $json.records[0].fields.responded_at, resolved_at: $json.records[0].fields.resolved_at }}) : JSON.stringify({ status: 'error', message: 'Incident not found' }) }}",
+        "options": {}
+      },
+      "id": "3fe77229-1541-4e12-9627-7b1a81f5eaac",
+      "name": "Return Incident Status",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        208,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "topic": {
+          "__rl": true,
+          "value": "arn:aws:sns:us-east-1:410859983167:new-incidents",
+          "mode": "list",
+          "cachedResultName": "new-incidents",
+          "cachedResultUrl": "https://us-east-1.console.aws.amazon.com/sns/v3/home?region=us-east-1#/topic/arn:aws:sns:us-east-1:410859983167:new-incidents"
+        },
+        "subject": "=New Incident - {{ $json.type }} - {{ $json.incident_id }}",
+        "message": "={\"incident_id\": \"{{ $json.incident_id }}\", \"citizen_name\": \"{{ $json.citizen_name }}\", \"type\": \"{{ $json.type }}\", \"severity\": \"{{ $json.severity }}\", \"description\": \"{{ $json.description }}\", \"location\": \"{{ $json.lat }},{{ $json.lon }}\", \"phone\": \"{{ $json.phone }}\", \"status\": \"{{ $json.status }}\", \"assigned_team\": \"{{ $json.assigned_team }}\", \"priority_score\": {{ $json.priority_score }}, \"created_at\": \"{{ $json.created_at }}\"}"
+      },
+      "type": "n8n-nodes-base.awsSns",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        384
+      ],
+      "id": "55b3d590-03c6-47e0-a307-9343811e387c",
+      "name": "Push New Incident to Dashboard",
+      "credentials": {
+        "aws": {
+          "id": "TMv1dBMhu8O8kJft",
+          "name": "AWS account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "topic": {
+          "__rl": true,
+          "value": "arn:aws:sns:us-east-1:410859983167:critical-alerts",
+          "mode": "list",
+          "cachedResultName": "critical-alerts",
+          "cachedResultUrl": "https://us-east-1.console.aws.amazon.com/sns/v3/home?region=us-east-1#/topic/arn:aws:sns:us-east-1:410859983167:critical-alerts"
+        },
+        "subject": "=CRITICAL EMERGENCY - {{ $json.type }} - {{ $json.incident_id }}",
+        "message": "={\"incident_id\": \"{{ $json.incident_id }}\", \"type\": \"{{ $json.type }}\", \"severity\": \"{{ $json.severity }}\", \"description\": \"{{ $json.description }}\", \"location\": \"{{ $json.lat }},{{ $json.lon }}\", \"phone\": \"{{ $json.phone }}\", \"citizen_name\": \"{{ $json.citizen_name }}\", \"priority_score\": {{ $json.priority_score }}, \"created_at\": \"{{ $json.created_at }}\"}"
+      },
+      "type": "n8n-nodes-base.awsSns",
+      "typeVersion": 1,
+      "position": [
+        -736,
+        -144
+      ],
+      "id": "9d9273cd-6029-4e1d-a6b0-61cc5ca783b7",
+      "name": "Send Critical Alert SNS1",
+      "credentials": {
+        "aws": {
+          "id": "TMv1dBMhu8O8kJft",
+          "name": "AWS account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "topic": {
+          "__rl": true,
+          "value": "arn:aws:sns:us-east-1:410859983167:incident-dashboard-updates",
+          "mode": "list",
+          "cachedResultName": "incident-dashboard-updates",
+          "cachedResultUrl": "https://us-east-1.console.aws.amazon.com/sns/v3/home?region=us-east-1#/topic/arn:aws:sns:us-east-1:410859983167:incident-dashboard-updates"
+        },
+        "subject": "=Incident Update - {{ $json.incident_id }}",
+        "message": "={\"incident_id\": \"{{ $json.incident_id }}\", \"status\": \"{{ $json.status }}\", \"worker_name\": \"{{ $json.worker_name }}\", \"response_message\": \"{{ $json.response_message }}\", \"eta_minutes\": {{ $json.eta_minutes || 0 }}, \"updated_at\": \"{{ new Date().toISOString() }}\", \"response_type\": \"{{ $json.response_type }}\"}"
+      },
+      "type": "n8n-nodes-base.awsSns",
+      "typeVersion": 1,
+      "position": [
+        864,
+        272
+      ],
+      "id": "a051495c-78f0-4533-b86d-b1bfd3dc1418",
+      "name": "Send Dashboard SNS Notification1",
+      "credentials": {
+        "aws": {
+          "id": "TMv1dBMhu8O8kJft",
+          "name": "AWS account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "topic": {
+          "__rl": true,
+          "value": "arn:aws:sns:us-east-1:410859983167:citizen-notifications",
+          "mode": "list",
+          "cachedResultName": "citizen-notifications",
+          "cachedResultUrl": "https://us-east-1.console.aws.amazon.com/sns/v3/home?region=us-east-1#/topic/arn:aws:sns:us-east-1:410859983167:citizen-notifications"
+        },
+        "subject": "arn:aws:sns:us-east-1:410859983167:citizen-notifications",
+        "message": "={\"incident_id\": \"{{ $json.incident_id }}\", \"status\": \"{{ $json.status }}\", \"worker_name\": \"{{ $json.worker_name }}\", \"response_message\": \"{{ $json.response_message }}\", \"eta_minutes\": {{ $json.eta_minutes || 0 }}, \"updated_at\": \"{{ new Date().toISOString() }}\", \"response_type\": \"{{ $json.response_type }}\"}"
+      },
+      "type": "n8n-nodes-base.awsSns",
+      "typeVersion": 1,
+      "position": [
+        880,
+        736
+      ],
+      "id": "cec750cb-64ad-42df-9ef6-2762d87d9ffb",
+      "name": "Send Citizen SNS Notification1",
+      "credentials": {
+        "aws": {
+          "id": "TMv1dBMhu8O8kJft",
+          "name": "AWS account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Incident Report Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Emergency Triage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Normalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Data": {
+      "main": [
+        [
+          {
+            "node": "Merge AI Response & Generate ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge AI Response & Generate ID": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Push New Incident to Dashboard",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check if Critical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Airtable Database": {
+      "main": [
+        []
+      ]
+    },
+    "Log to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Citizen Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Push New Incident to Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Critical": {
+      "main": [
+        [
+          {
+            "node": "Send Critical Alert SNS1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Incidents API": {
+      "main": [
+        [
+          {
+            "node": "Fetch Active Incidents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Active Incidents": {
+      "main": [
+        [
+          {
+            "node": "Return Incidents List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worker Response Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Worker Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Worker Response": {
+      "main": [
+        [
+          {
+            "node": "Find Incident Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Incident Record": {
+      "main": [
+        [
+          {
+            "node": "Merge Incident Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Incident Data": {
+      "main": [
+        [
+          {
+            "node": "Update Incident Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Incident Status": {
+      "main": [
+        [
+          {
+            "node": "Worker Response Success",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Dashboard SNS Notification1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Citizen SNS Notification1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Citizen Status Check API": {
+      "main": [
+        [
+          {
+            "node": "Get Incident Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Incident Status": {
+      "main": [
+        [
+          {
+            "node": "Return Incident Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Emergency Triage": {
+      "main": [
+        [
+          {
+            "node": "Merge AI Response & Generate ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push New Incident to Dashboard": {
+      "main": [
+        []
+      ]
+    },
+    "Send Critical Alert SNS1": {
+      "main": [
+        []
+      ]
+    },
+    "Send Dashboard SNS Notification1": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6b93fe0c-d7be-4647-b224-6e4b04684288",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9b3dcad4c0a9e5dd95077a9cc98281cfdee4a7db2a2f2ef20a3b253c33187e4f"
+  },
+  "id": "2auaSe2ITztuKSZN",
+  "tags": [
+    {
+      "createdAt": "2025-09-27T20:16:26.873Z",
+      "updatedAt": "2025-09-27T20:16:26.873Z",
+      "id": "WGfW32jKfMDDSuGp",
+      "name": "emergency-complete"
+    }
+  ]
+}
